@@ -1,0 +1,19 @@
+ mvn spring-boot:run -DskipTests
+
+
+
+Start the PostgreSQL service
+   sudo systemctl start postgresql
+Enable PostgreSQL to start on boot:
+   sudo systemctl enable postgresql
+Check the status of the service:
+   sudo systemctl status postgresql
+
+
+ psql -U local_user -d traderdeck_local
+once logged in:
+ \dt  => show all tables
+
+
+ \d <table-name> ==> show schema for that table
+
