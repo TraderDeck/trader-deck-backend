@@ -11,6 +11,7 @@ Check the status of the service:
 
 
  psql -U local_user -d traderdeck_local
+ pwd: Test1212!
 once logged in:
  \dt  => show all tables
 
