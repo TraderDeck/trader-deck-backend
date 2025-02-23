@@ -10,13 +10,12 @@ import java.io.FileReader;
 import java.io.Reader;
 import java.math.BigInteger;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
-public class CsvSeeder {
+public class TickersSeeder {
     private final TickerRepository tickerRepository;
 
-    public CsvSeeder(TickerRepository tickerRepository) {
+    public TickersSeeder(TickerRepository tickerRepository) {
         this.tickerRepository = tickerRepository;
     }
 
@@ -45,12 +44,10 @@ public class CsvSeeder {
                             t.getMarketCap() != null && !t.getMarketCap().equals(BigInteger.ZERO))
                     .toList();
 
-////            System.out.println("---------- Printing tickers parsed: "+tickers);
-//            System.out.println("-------- Parsing Done .....: ");
+
             tickerRepository.saveAll(validTickers);
             System.out.println("Ticker data successfully imported.");
         } catch (Exception e) {
-//            System.out.println("-------- Parsing Error .....: "+e);
             e.printStackTrace();
         }
     }

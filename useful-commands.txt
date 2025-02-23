@@ -1,5 +1,6 @@
  mvn spring-boot:run -DskipTests
 
+mvn clean install -Dmaven.test.skip=true
 
 
 Start the PostgreSQL service
@@ -10,10 +11,13 @@ Check the status of the service:
    sudo systemctl status postgresql
 
 
+psql -U postgres -d traderdeck_local
+
+
  psql -U local_user -d traderdeck_local
  pwd: Test1212!
 once logged in:
- \dt  => show all tables
+ \  => show all tables
 
 
  \d <table-name> ==> show schema for that table

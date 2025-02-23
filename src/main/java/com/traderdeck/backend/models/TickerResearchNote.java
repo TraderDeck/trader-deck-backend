@@ -2,13 +2,13 @@ package com.traderdeck.backend.models;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.UpdateTimestamp;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "ticker_research_notes")
+@Table(name = "ticker_research_notes", uniqueConstraints = {
+        @UniqueConstraint(columnNames = {"ticker_symbol", "user_id"})
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -17,18 +17,18 @@ import java.util.UUID;
 public class TickerResearchNote {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
+    @GeneratedValue
     private UUID id;
 
-    @Column(nullable = false, length = 10)
+    @Column(nullable = false)
     private String tickerSymbol;
 
-    @Column(nullable = false)
-    private UUID userId;
+    @Column(name = "user_id", nullable = false)
+    private UUID userId; // ✅ Ensure this field exists
 
-    @Column(columnDefinition = "TEXT", nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
     @Column(nullable = false)
-    private LocalDateTime lastUpdated;
+    private LocalDateTime lastUpdated = LocalDateTime.now();
 }
