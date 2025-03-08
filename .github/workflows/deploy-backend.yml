@@ -22,14 +22,15 @@ jobs:
       - name: Build Spring Boot JAR
         run: mvn clean package -DskipTests
 
-      - name: Upload JAR to EC2
+      - name: Upload JAR to EC2 via Bastion
         uses: appleboy/scp-action@v0.1.4
         with:
-          host: ${{ secrets.EC2_INSTANCE_IP }}
+          host: ${{ secrets.BASTION_IP }}
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "target/*.jar"
           target: "/home/ec2-user/"
+          proxy_host: ${{ secrets.EC2_INSTANCE_IP }}
 
       - name: Restart Spring Boot Application
         uses: appleboy/ssh-action@v0.1.4
