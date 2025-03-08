@@ -18,7 +18,8 @@ psql -U postgres -d traderdeck_local
  pwd: Test1212!
 once logged in:
  \  => show all tables
-
+\d
+\
 
  \d <table-name> ==> show schema for that table
 

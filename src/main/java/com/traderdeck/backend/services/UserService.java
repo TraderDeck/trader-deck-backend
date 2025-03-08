@@ -24,25 +24,25 @@ public class UserService {
     }
 
     public String registerUser(String username, String email, String rawPassword) {
-        String hashedPassword = passwordEncoder.encode(rawPassword); // ✅ Hash password
+        String hashedPassword = passwordEncoder.encode(rawPassword);
 
         User newUser = User.builder()
                 .username(username)
                 .email(email)
-                .password(hashedPassword) // ✅ Store hashed password
+                .password(hashedPassword)
                 .role("USER")
                 .build();
 
         userRepository.save(newUser);
-        return jwtService.generateToken(newUser.getId(), newUser.getRole()); // ✅ Return JWT token
+        return jwtService.generateToken(newUser.getId(), newUser.getRole());
     }
 
     public String authenticateUser(String email, String rawPassword) {
         Optional<User> userOptional = userRepository.findByEmail(email);
         if (userOptional.isPresent()) {
             User user = userOptional.get();
-            if (passwordEncoder.matches(rawPassword, user.getPassword())) { // ✅ Verify password
-                return jwtService.generateToken(user.getId(), user.getRole()); // ✅ Issue JWT token
+            if (passwordEncoder.matches(rawPassword, user.getPassword())) {
+                return jwtService.generateToken(user.getId(), user.getRole());
             }
         }
         throw new RuntimeException("Invalid credentials");

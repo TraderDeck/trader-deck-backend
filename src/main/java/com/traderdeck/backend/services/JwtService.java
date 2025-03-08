@@ -14,14 +14,14 @@ import java.util.UUID;
 @Service
 public class JwtService {
 
-    private final Key key = Keys.secretKeyFor(SignatureAlgorithm.HS256); // Secure key
+    private final Key key = Keys.secretKeyFor(SignatureAlgorithm.HS256);
 
     public String generateToken(UUID userId, String role) {
         return Jwts.builder()
-                .setSubject(userId.toString()) // Store user ID in token
-                .claim("role", role) // Add user role
+                .setSubject(userId.toString())
+                .claim("role", role)
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 86400000)) // 1 day expiration
+                .setExpiration(new Date(System.currentTimeMillis() + 3600000)) // 1 hour Expiration
                 .signWith(key)
                 .compact();
     }
