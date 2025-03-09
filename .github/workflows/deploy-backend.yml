@@ -1,4 +1,4 @@
-name: Deploy Spring Boot to EC2
+name: Deploy Spring Boot to Backend EC2
 
 on:
   push:
@@ -22,7 +22,8 @@ jobs:
       - name: Build Spring Boot JAR
         run: mvn clean package -DskipTests
 
-      - name: Upload JAR to EC2 via Bastion
+      # Step 1: Upload JAR file to Bastion Host
+      - name: Upload JAR to Bastion
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.BASTION_IP }}
@@ -30,14 +31,22 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "target/*.jar"
           target: "/home/ec2-user/"
-          proxy_host: ${{ secrets.EC2_INSTANCE_IP }}
 
-      - name: Restart Spring Boot Application
+      # Step 2: SSH into Bastion and Copy JAR to Backend EC2, then Restart App
+      - name: SSH into Bastion & Deploy to Backend EC2
         uses: appleboy/ssh-action@v0.1.4
         with:
-          host: ${{ secrets.EC2_INSTANCE_IP }}
+          host: ${{ secrets.BASTION_IP }}
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            pkill -f 'java -jar' || true
-            nohup java -jar /home/ec2-user/your-app.jar > app.log 2>&1 &
+            echo "Copying JAR to Backend EC2..."
+            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/*.jar ec2-user@10.16.78.89:/home/ec2-user/
+            echo "SSHing into Backend EC2..."
+            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 << 'EOF'
+              echo "Stopping Existing Spring Boot Application"
+              pkill -f 'java -jar' || true
+              echo "Starting New Deployment"
+              nohup java -jar /home/ec2-user/your-app.jar > app.log 2>&1 &
+              echo "Deployment Successful"
+            EOF
