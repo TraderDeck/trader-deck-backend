@@ -38,7 +38,7 @@ jobs:
         with:
           host: ${{ secrets.BASTION_IP }}
           username: ec2-user
-          key: ${{ secrets.BASTION_SSH_PRIVATE_KEY }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             echo "Verifying JAR file exists on Bastion..."
             ls -lah /home/ec2-user/target/
