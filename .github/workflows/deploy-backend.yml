@@ -38,15 +38,17 @@ jobs:
         with:
           host: ${{ secrets.BASTION_IP }}
           username: ec2-user
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key: ${{ secrets.BASTION_SSH_PRIVATE_KEY }}
           script: |
+            echo "Verifying JAR file exists on Bastion..."
+            ls -lah /home/ec2-user/target/
             echo "Copying JAR to Backend EC2..."
-            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/*.jar ec2-user@10.16.78.89:/home/ec2-user/
+            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar ec2-user@10.16.78.89:/home/ec2-user/
             echo "SSHing into Backend EC2..."
             ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 << 'EOF'
               echo "Stopping Existing Spring Boot Application"
               pkill -f 'java -jar' || true
               echo "Starting New Deployment"
-              nohup java -jar /home/ec2-user/your-app.jar > app.log 2>&1 &
+              nohup java -jar /home/ec2-user/backend-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
               echo "Deployment Successful"
             EOF
