@@ -12,7 +12,7 @@ Check the status of the service:
 
 
 psql -U postgres -d traderdeck_local
-
+pwd: Test1212!
 
  psql -U local_user -d traderdeck_local
  pwd: Test1212!
