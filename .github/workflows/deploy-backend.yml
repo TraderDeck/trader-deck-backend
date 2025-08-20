@@ -22,7 +22,7 @@ jobs:
       - name: Build Spring Boot JAR
         run: mvn clean package -DskipTests
 
-      # Step 1: Upload JAR file to Bastion Host
+      # Step 1: Upload JAR file to Bastion Host (ensure it lands in /home/ec2-user/target/)
       - name: Upload JAR to Bastion
         uses: appleboy/scp-action@v0.1.4
         with:
@@ -30,7 +30,7 @@ jobs:
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "target/*.jar"
-          target: "/home/ec2-user/"
+          target: "/home/ec2-user/target/"
 
       # Step 2: SSH into Bastion and Copy JAR to Backend EC2, then Restart App
       - name: SSH into Bastion & Deploy to Backend EC2
@@ -49,6 +49,6 @@ jobs:
               echo "Stopping Existing Spring Boot Application"
               pkill -f 'java -jar' || true
               echo "Starting New Deployment"
-              nohup java -jar /home/ec2-user/backend-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
+              nohup java -Dbedrock.mock.enabled=false -jar /home/ec2-user/backend-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
               echo "Deployment Successful"
             EOF

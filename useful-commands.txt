@@ -23,3 +23,10 @@ once logged in:
 
  \d <table-name> ==> show schema for that table
 
+test user:
+    "username": "testuser123",
+    "email": "testuser123@example.com",
+    "password": "password123"
+
+
+ to get jwt token:
