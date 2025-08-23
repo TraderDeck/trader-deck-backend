@@ -79,23 +79,27 @@ jobs:
             fi
 
             echo "=== Creating environment variables on Backend EC2 ==="
+            # Build quoted env file on backend host using a safe heredoc (quotes preserved)
             ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@$BACKEND_HOST 'bash -s' <<'EOSSH'
-            set -e
+            set -euo pipefail
+            # Write environment variables with single quotes so multi-line / special chars stay intact
             cat > /home/ec2-user/.env <<'EOF'
-            DB_URL=${{ secrets.DB_URL }}
-            DB_USERNAME=${{ secrets.DB_USERNAME }}
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            AWS_REGION=${{ secrets.AWS_REGION }}
-            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            BEDROCK_FLOW_ID=${{ secrets.BEDROCK_FLOW_ID }}
-            BEDROCK_FLOW_ALIAS_ID=${{ secrets.BEDROCK_FLOW_ALIAS_ID }}
-            BEDROCK_MOCK_ENABLED=${{ secrets.BEDROCK_MOCK_ENABLED }}
+            DB_URL='${{ secrets.DB_URL }}'
+            DB_USERNAME='${{ secrets.DB_USERNAME }}'
+            DB_PASSWORD='${{ secrets.DB_PASSWORD }}'
+            AWS_REGION='${{ secrets.AWS_REGION }}'
+            AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}'
+            AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}'
+            BEDROCK_FLOW_ID='${{ secrets.BEDROCK_FLOW_ID }}'
+            BEDROCK_FLOW_ALIAS_ID='${{ secrets.BEDROCK_FLOW_ALIAS_ID }}'
+            BEDROCK_MOCK_ENABLED='${{ secrets.BEDROCK_MOCK_ENABLED }}'
             EOF
             chmod 600 /home/ec2-user/.env
             echo 'Environment file created successfully'
-            echo 'Verifying .env file line count:'
-            wc -l /home/ec2-user/.env
+            echo 'Contents (variable names only):'
+            cut -d '=' -f1 /home/ec2-user/.env
+            echo 'Verifying no blank lines:'
+            nl -ba /home/ec2-user/.env
             EOSSH
             if [ $? -eq 0 ]; then
               echo "SUCCESS: Environment variables created on Backend EC2"
@@ -105,68 +109,77 @@ jobs:
             fi
 
             echo "=== Deploying to Backend EC2 ==="
-            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@$BACKEND_HOST "
-              JAR_NAME=$JAR_NAME
-              REMOTE_HOME=$REMOTE_HOME
-              REMOTE_JAR_PATH=$REMOTE_JAR_PATH
-              echo '=== Backend EC2 Deployment Start ==='
-              echo 'Current time:' \
-              $(date)
-              
-              echo '=== Stopping existing Spring Boot application ==='
-              EXISTING_PID=\$(pgrep -f \"java -jar.*$JAR_NAME\")
-              if [ ! -z \"$EXISTING_PID\" ]; then
-                echo \"Found existing application with PID: $EXISTING_PID\"
-                pkill -f \"java -jar.*$JAR_NAME\" || true
-                sleep 3
-                REMAINING_PID=\$(pgrep -f \"java -jar.*$JAR_NAME\")
-                if [ ! -z \"$REMAINING_PID\" ]; then
-                  echo \"WARNING: Application still running with PID: $REMAINING_PID\"
-                  pkill -9 -f \"java -jar.*$JAR_NAME\" || true
-                  sleep 2
-                  echo \"Force killed application\"
-                else
-                  echo \"SUCCESS: Application stopped gracefully\"
-                fi
-              else
-                echo \"INFO: No existing application found running\"
-              fi
-              
-              echo '=== Loading environment variables ==='
-              if [ -f $REMOTE_HOME/.env ]; then
-                set -a
-                . $REMOTE_HOME/.env
-                set +a
-              else
-                echo 'ERROR: .env file not found!'
-                exit 1
-              fi
+            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@$BACKEND_HOST "JAR_NAME=$JAR_NAME REMOTE_HOME=$REMOTE_HOME REMOTE_JAR_PATH=$REMOTE_JAR_PATH" 'bash -s' <<'EOSSH'
+            set -euo pipefail
+            echo '=== Backend EC2 Deployment Start ==='
+            echo "Current time: $(date)"
+            echo "Using JAR: ${REMOTE_JAR_PATH}"
 
-              echo '=== Verifying JAR file on Backend EC2 ==='
-              if [ -f \"$REMOTE_JAR_PATH\" ]; then
-                echo \"SUCCESS: JAR file found: $REMOTE_JAR_PATH\"
-                ls -lah \"$REMOTE_JAR_PATH\"
-              else
-                echo \"ERROR: JAR file not found at $REMOTE_JAR_PATH\"
-                ls -lah $REMOTE_HOME || true
-                exit 1
+            echo '=== Stopping existing Spring Boot application ==='
+            if pgrep -f "java -jar.*${JAR_NAME}" >/dev/null 2>&1; then
+              EXISTING_PIDS=$(pgrep -f "java -jar.*${JAR_NAME}" | xargs)
+              echo "Found running PIDs: $EXISTING_PIDS"
+              pkill -f "java -jar.*${JAR_NAME}" || true
+              sleep 3
+              if pgrep -f "java -jar.*${JAR_NAME}" >/dev/null 2>&1; then
+                echo 'Force killing remaining processes'
+                pkill -9 -f "java -jar.*${JAR_NAME}" || true
               fi
+            else
+              echo 'No existing application running'
+            fi
 
-              echo '=== Starting new deployment ==='
-              nohup java -jar \"$REMOTE_JAR_PATH\" > app.log 2>&1 &
-              APP_PID=\$!
-              echo \"Application started with PID: $APP_PID\"
-              sleep 7
-              RUNNING_PID=\$(pgrep -f \"java -jar.*$JAR_NAME\")
-              if [ -z \"$RUNNING_PID\" ]; then
-                echo 'ERROR: Application failed to start.'
-                tail -40 app.log || true
+            echo '=== Loading environment variables ==='
+            if [ ! -f "${REMOTE_HOME}/.env" ]; then
+              echo 'ERROR: .env file missing'
+              exit 1
+            fi
+            # shellcheck disable=SC2046,SC1090
+            set -a
+            . "${REMOTE_HOME}/.env"
+            set +a
+            echo "Loaded variables: $(grep '=' ${REMOTE_HOME}/.env | wc -l)"
+            echo "DB_URL length: $(printf %s "${DB_URL}" | wc -c)"
+            echo "DB_PASSWORD length: $(printf %s "${DB_PASSWORD}" | wc -c)"
+
+            echo '=== Verifying JAR file ==='
+            if [ ! -f "${REMOTE_JAR_PATH}" ]; then
+              echo "ERROR: JAR not found at ${REMOTE_JAR_PATH}"
+              ls -lah "${REMOTE_HOME}" || true
+              exit 1
+            fi
+            ls -lah "${REMOTE_JAR_PATH}"
+
+            echo '=== Starting new deployment ==='
+            nohup java -jar "${REMOTE_JAR_PATH}" > app.log 2>&1 &
+            APP_PID=$!
+            echo "Started process PID: ${APP_PID}"
+
+            echo '=== Waiting for application readiness (log + port) ==='
+            ATTEMPTS=30
+            READY=0
+            while [ $ATTEMPTS -gt 0 ]; do
+              if grep -q "Started BackendApplication" app.log 2>/dev/null; then
+                READY=1; break
+              fi
+              if ! kill -0 "$APP_PID" 2>/dev/null; then
+                echo 'Process exited prematurely:'
+                tail -50 app.log || true
                 exit 1
               fi
-              echo \"SUCCESS: Application running with PID: $RUNNING_PID\"
-              tail -20 app.log || true
-              echo '=== Deployment completed successfully ==='
-            "
+              sleep 1
+              ATTEMPTS=$((ATTEMPTS-1))
+            done
+            if [ $READY -eq 0 ]; then
+              echo 'Timeout waiting for startup signature. Showing last 80 log lines.'
+              tail -80 app.log || true
+              exit 1
+            fi
+            echo 'Application reported startup success.'
+            echo 'Recent log lines:'
+            tail -30 app.log || true
+            echo '=== Deployment completed successfully ==='
+            EOSSH
             if [ $? -eq 0 ]; then
               echo "SUCCESS: Deployment completed on Backend EC2"
             else
