@@ -2,42 +2,37 @@ name: Deploy Spring Boot to Backend EC2
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches:
+      - main  # Deploys automatically when code is pushed to main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set Up JDK 17
+        uses: actions/setup-java@v3
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
 
-      - name: Build
-        run: mvn -q -DskipTests clean package
+      - name: Build Spring Boot JAR
+        run: mvn clean package -DskipTests
 
-      - name: Locate Artifact And Checksum
-        id: art
-        run: |
-          JAR=$(ls target/*-SNAPSHOT.jar | head -n1)
-          SHA=$(sha256sum "$JAR" | awk '{print $1}')
-          echo "jar=$JAR" >> $GITHUB_OUTPUT
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
-          echo "stamp=$(date +%Y%m%d%H%M%S)" >> $GITHUB_OUTPUT
-
+      # Step 1: Upload JAR file to Bastion Host
       - name: Upload JAR to Bastion
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.BASTION_IP }}
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: ${{ steps.art.outputs.jar }}
-          target: /home/ec2-user/deploy/
-          overwrite: true
+          source: "target/*.jar"
+          target: "/home/ec2-user/"
 
+      # Step 2: SSH into Bastion and Copy JAR to Backend EC2, then Restart App
       - name: SSH into Bastion & Deploy to Backend EC2
         uses: appleboy/ssh-action@v0.1.4
         with:
@@ -45,30 +40,15 @@ jobs:
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            set -euo pipefail
-            mkdir -p /home/ec2-user/deploy
-            shopt -s globstar nullglob
-            LATEST_JAR=$(ls -t /home/ec2-user/deploy/**/*.jar | head -n1)
-            echo "Deploying $LATEST_JAR"
-
-            LOCAL_SHA='${{ steps.art.outputs.sha }}'
-            REMOTE_SHA=$(sha256sum "$LATEST_JAR" | awk '{print $1}')
-            test "$LOCAL_SHA" = "$REMOTE_SHA"
-
-            mkdir -p ~/.ssh
-            echo "${{ secrets.BACKEND_SSH_KEY }}" > ~/.ssh/backend_key
-            chmod 600 ~/.ssh/backend_key
-
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/backend_key ec2-user@10.16.78.89 'mkdir -p /home/ec2-user/app'
-            scp -o StrictHostKeyChecking=no -i ~/.ssh/backend_key "$LATEST_JAR" ec2-user@10.16.78.89:/home/ec2-user/app/app.jar
-
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/backend_key ec2-user@10.16.78.89 'sha256sum /home/ec2-user/app/app.jar | awk "{print \$1}"' | tee /tmp/remote.sum
-            test "$LOCAL_SHA" = "$(cat /tmp/remote.sum)"
-
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/backend_key ec2-user@10.16.78.89 'sudo systemctl stop traderdeck-backend || pkill -f "java -jar" || true'
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/backend_key ec2-user@10.16.78.89 'sudo systemctl start traderdeck-backend || nohup java -Dbedrock.mock.enabled=false -jar /home/ec2-user/app/app.jar > /home/ec2-user/app/app.log 2>&1 &'
-
-            sleep 4
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/backend_key ec2-user@10.16.78.89 'jar tf /home/ec2-user/app/app.jar | grep -i controller || true'
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/backend_key ec2-user@10.16.78.89 'tail -n 200 /home/ec2-user/app/app.log || true'
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/backend_key ec2-user@10.16.78.89 'curl -s -i http://localhost:8080/actuator/health || true'
+            echo "Verifying JAR file exists on Bastion..."
+            ls -lah /home/ec2-user/target/
+            echo "Copying JAR to Backend EC2..."
+            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar ec2-user@10.16.78.89:/home/ec2-user/
+            echo "SSHing into Backend EC2..."
+            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 << 'EOF'
+              echo "Stopping Existing Spring Boot Application"
+              pkill -f 'java -jar' || true
+              echo "Starting New Deployment"
+              nohup java -jar /home/ec2-user/backend-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
+              echo "Deployment Successful"
+            EOF
