@@ -39,18 +39,40 @@ jobs:
           host: ${{ secrets.BASTION_IP }}
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          debug: true
           script: |
-            echo "Verifying JAR file exists on Bastion..."
+            echo "=== STEP 1: Verifying JAR file exists on Bastion ==="
             ls -lah /home/ec2-user/target/
-            echo "Copying JAR to Backend EC2..."
-            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar ec2-user@10.16.78.89:/home/ec2-user/
+            JAR_FILE="/home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar"
+            if [ ! -f "$JAR_FILE" ]; then
+              echo "ERROR: JAR file not found at $JAR_FILE"
+              echo "Available files in target directory:"
+              ls -la /home/ec2-user/target/ || echo "Target directory does not exist"
+              exit 1
+            fi
+            echo "✓ JAR file found: $JAR_FILE"
+            
+            echo "=== STEP 2: Checking SSH key and backend connectivity ==="
+            ls -la ~/traderdeck-key.pem || echo "ERROR: SSH key not found"
+            chmod 600 ~/traderdeck-key.pem 2>/dev/null || echo "Could not set key permissions"
+            echo "Testing SSH connectivity to backend..."
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/traderdeck-key.pem ec2-user@10.16.78.89 "echo 'Backend connectivity test successful'" || {
+              echo "ERROR: Cannot connect to backend EC2"
+              exit 1
+            }
+            
+            echo "=== STEP 3: Copying JAR to Backend EC2 ==="
+            echo "Source: $JAR_FILE"
+            echo "Destination: ec2-user@10.16.78.89:/home/ec2-user/"
+            scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 -v -i ~/traderdeck-key.pem "$JAR_FILE" ec2-user@10.16.78.89:/home/ec2-user/ || {
+              echo "ERROR: Failed to copy JAR file to backend"
+              exit 1
+            }
+            echo "✓ JAR file copied successfully"
 
+            echo "=== STEP 4: Creating environment variables on Backend EC2 ==="
             echo "Creating env variables on Backend EC2..."
             ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 "cat > /home/ec2-user/.env <<EOF
-            DB_HOST=${{ secrets.DB_HOST }}
-            DB_USERNAME=${{ secrets.DB_USERNAME }}
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            DB_URL=${{ secrets.DB_URL }}
             AWS_REGION=${{ secrets.AWS_REGION }}
             AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -58,14 +80,62 @@ jobs:
             BEDROCK_FLOW_ALIAS_ID=${{ secrets.BEDROCK_FLOW_ALIAS_ID }}
             BEDROCK_MOCK_ENABLED=${{ secrets.BEDROCK_MOCK_ENABLED }}
             EOF"
+            
+            echo "Verifying env file creation..."
+            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 "
+              echo '✓ Environment file created'
+              echo 'Environment file contents (masked):'
+              sed 's/=.*/=***/' /home/ec2-user/.env
+            " || {
+              echo "ERROR: Failed to create environment file"
+              exit 1
+            }
 
-            echo "Deploying to Backend EC2..."
+            echo "=== STEP 5: Deploying application on Backend EC2 ==="
             ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 '
+              echo "Checking current processes..."
+              ps aux | grep -i java || echo "No Java processes found"
+              
               echo "Stopping existing Spring Boot application..."
-              pkill -f "java -jar" || true
+              pkill -f "backend-0.0.1-SNAPSHOT.jar" || echo "No existing application to stop"
+              sleep 2
+              
+              echo "Verifying JAR file was copied..."
+              ls -la /home/ec2-user/backend-0.0.1-SNAPSHOT.jar || {
+                echo "ERROR: JAR file not found on backend after copy"
+                exit 1
+              }
+              
               echo "Loading environment variables..."
-              export $(cat /home/ec2-user/.env | xargs)
+              if [ -f /home/ec2-user/.env ]; then
+                export $(cat /home/ec2-user/.env | xargs)
+                echo "✓ Environment variables loaded"
+              else
+                echo "WARNING: .env file not found"
+              fi
+              
               echo "Starting new deployment..."
-              nohup java -jar /home/ec2-user/backend-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
-              echo "Deployment successful"
-            '
+              nohup java -jar /home/ec2-user/backend-0.0.1-SNAPSHOT.jar > /home/ec2-user/app.log 2>&1 &
+              NEW_PID=$!
+              echo "✓ Application started with PID: $NEW_PID"
+              
+              echo "Waiting for application to start..."
+              sleep 10
+              
+              echo "Checking if application is running..."
+              if ps -p $NEW_PID > /dev/null; then
+                echo "✓ Application is running successfully"
+                echo "Recent log output:"
+                tail -20 /home/ec2-user/app.log || echo "Could not read log file"
+              else
+                echo "ERROR: Application failed to start"
+                echo "Log output:"
+                cat /home/ec2-user/app.log || echo "Could not read log file"
+                exit 1
+              fi
+              
+              echo "=== DEPLOYMENT SUCCESSFUL ==="
+            ' || {
+              echo "ERROR: Deployment failed on backend EC2"
+              exit 1
+            }
