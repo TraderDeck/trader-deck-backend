@@ -40,13 +40,34 @@ jobs:
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            echo "Verifying JAR file exists on Bastion..."
+            echo "=== Starting deployment process ==="
+            echo "Current time: $(date)"
+            echo "Current user: $(whoami)"
+            echo "Current directory: $(pwd)"
+            
+            echo "=== Verifying JAR file exists on Bastion ==="
             ls -lah /home/ec2-user/target/
-            echo "Copying JAR to Backend EC2..."
+            if [ ! -f /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar ]; then
+              echo "ERROR: JAR file not found on Bastion!"
+              exit 1
+            fi
+            echo "SUCCESS: JAR file found on Bastion"
+            
+            echo "=== Copying JAR to Backend EC2 ==="
+            echo "Source: /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar"
+            echo "Destination: ec2-user@10.16.78.89:/home/ec2-user/"
             scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar ec2-user@10.16.78.89:/home/ec2-user/
+            if [ $? -eq 0 ]; then
+              echo "SUCCESS: JAR file copied to Backend EC2"
+            else
+              echo "ERROR: Failed to copy JAR file to Backend EC2"
+              exit 1
+            fi
 
-            echo "Creating env variables on Backend EC2..."
-            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 "cat > /home/ec2-user/.env <<EOF
+            echo "=== Creating environment variables on Backend EC2 ==="
+            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 "
+              echo 'Creating .env file...'
+              cat > /home/ec2-user/.env <<EOF
             DB_HOST=${{ secrets.DB_HOST }}
             DB_USERNAME=${{ secrets.DB_USERNAME }}
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
@@ -57,15 +78,99 @@ jobs:
             BEDROCK_FLOW_ID=${{ secrets.BEDROCK_FLOW_ID }}
             BEDROCK_FLOW_ALIAS_ID=${{ secrets.BEDROCK_FLOW_ALIAS_ID }}
             BEDROCK_MOCK_ENABLED=${{ secrets.BEDROCK_MOCK_ENABLED }}
-            EOF"
+            EOF
+              echo 'Environment file created successfully'
+              echo 'Verifying .env file contents:'
+              wc -l /home/ec2-user/.env
+              echo 'Environment variables count:' \$(cat /home/ec2-user/.env | wc -l)
+            "
+            if [ $? -eq 0 ]; then
+              echo "SUCCESS: Environment variables created on Backend EC2"
+            else
+              echo "ERROR: Failed to create environment variables on Backend EC2"
+              exit 1
+            fi
 
-            echo "Deploying to Backend EC2..."
+            echo "=== Deploying to Backend EC2 ==="
             ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 '
-              echo "Stopping existing Spring Boot application..."
-              pkill -f "java -jar" || true
-              echo "Loading environment variables..."
-              export $(cat /home/ec2-user/.env | xargs)
-              echo "Starting new deployment..."
+              echo "=== Backend EC2 Deployment Start ==="
+              echo "Current time: $(date)"
+              echo "Current user: $(whoami)"
+              echo "Current directory: $(pwd)"
+              
+              echo "=== Stopping existing Spring Boot application ==="
+              EXISTING_PID=$(pgrep -f "java -jar.*backend-0.0.1-SNAPSHOT.jar")
+              if [ ! -z "$EXISTING_PID" ]; then
+                echo "Found existing application with PID: $EXISTING_PID"
+                pkill -f "java -jar" || true
+                sleep 3
+                REMAINING_PID=$(pgrep -f "java -jar.*backend-0.0.1-SNAPSHOT.jar")
+                if [ ! -z "$REMAINING_PID" ]; then
+                  echo "WARNING: Application still running with PID: $REMAINING_PID"
+                  pkill -9 -f "java -jar" || true
+                  sleep 2
+                  echo "Force killed application"
+                else
+                  echo "SUCCESS: Application stopped gracefully"
+                fi
+              else
+                echo "INFO: No existing application found running"
+              fi
+              
+              echo "=== Loading environment variables ==="
+              if [ -f /home/ec2-user/.env ]; then
+                echo "Loading environment from .env file..."
+                export $(cat /home/ec2-user/.env | xargs)
+                echo "Environment variables loaded. Count: $(cat /home/ec2-user/.env | wc -l)"
+                echo "DB_HOST is set to: ${DB_HOST:-NOT_SET}"
+                echo "AWS_REGION is set to: ${AWS_REGION:-NOT_SET}"
+              else
+                echo "ERROR: .env file not found!"
+                exit 1
+              fi
+              
+              echo "=== Verifying JAR file on Backend EC2 ==="
+              if [ -f /home/ec2-user/backend-0.0.1-SNAPSHOT.jar ]; then
+                echo "SUCCESS: JAR file found on Backend EC2"
+                ls -lah /home/ec2-user/backend-0.0.1-SNAPSHOT.jar
+              else
+                echo "ERROR: JAR file not found on Backend EC2!"
+                exit 1
+              fi
+              
+              echo "=== Starting new deployment ==="
+              echo "Starting application in background..."
               nohup java -jar /home/ec2-user/backend-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
-              echo "Deployment successful"
+              APP_PID=$!
+              echo "Application started with PID: $APP_PID"
+              
+              echo "=== Waiting for application to start ==="
+              sleep 5
+              
+              echo "=== Verifying application is running ==="
+              RUNNING_PID=$(pgrep -f "java -jar.*backend-0.0.1-SNAPSHOT.jar")
+              if [ ! -z "$RUNNING_PID" ]; then
+                echo "SUCCESS: Application is running with PID: $RUNNING_PID"
+              else
+                echo "ERROR: Application failed to start!"
+                echo "=== Last 20 lines of application log ==="
+                tail -20 app.log || echo "No log file found"
+                exit 1
+              fi
+              
+              echo "=== Checking application logs ==="
+              echo "Last 10 lines of application log:"
+              tail -10 app.log || echo "No log content yet"
+              
+              echo "=== Deployment completed successfully ==="
+              echo "Deployment finished at: $(date)"
             '
+            if [ $? -eq 0 ]; then
+              echo "SUCCESS: Deployment completed on Backend EC2"
+            else
+              echo "ERROR: Deployment failed on Backend EC2"
+              exit 1
+            fi
+            
+            echo "=== Overall deployment process completed ==="
+            echo "Finished at: $(date)"
