@@ -2,15 +2,15 @@ package com.traderdeck.backend.controllers;
 
 import com.traderdeck.backend.dto.AnalysisRequest;
 import com.traderdeck.backend.dto.AnalysisResponse;
-import com.traderdeck.backend.services.BedrockAnalysisService;
-import com.traderdeck.backend.services.JwtService;
+import com.traderdeck.backend.dto.JobAcceptedResponse;
+import com.traderdeck.backend.services.AnalysisJobService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -19,46 +19,24 @@ import java.util.UUID;
 @Slf4j
 public class AnalyzeController {
 
-    private final BedrockAnalysisService bedrockAnalysisService;
-    private final JwtService jwtService;
+    private final AnalysisJobService jobService;
 
     @PostMapping("/analyze")
-    public ResponseEntity<AnalysisResponse> analyzeStock(@RequestBody AnalysisRequest request) {
-        try {
-            log.info("Received analysis request for ticker: {}", request.getTickerSymbol());
-            
-            // For now, we'll use a dummy user ID since authentication might not be required
-            // You can add authentication later if needed
-            UUID userId = UUID.randomUUID();
-            
-            AnalysisResponse response = bedrockAnalysisService.analyzeStock(
-                request.getTickerSymbol(), 
-                request.getUserPrompt(), 
-                userId
-            );
-            
-            return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("Error analyzing stock {}: {}", request.getTickerSymbol(), e.getMessage(), e);
-            return ResponseEntity.internalServerError()
-                    .body(createErrorResponse(request.getTickerSymbol(), e.getMessage()));
-        }
+    public ResponseEntity<JobAcceptedResponse> analyzeAsync(@RequestBody AnalysisRequest request, @RequestHeader(value = "X-User-Id", required = false) String userIdHeader) {
+        UUID userId = parseUser(userIdHeader);
+        log.info("Async analyze request ticker={} userId={}", request.getTickerSymbol(), userId);
+        String jobId = jobService.enqueue(request, userId);
+        return ResponseEntity.accepted().body(new JobAcceptedResponse(jobId));
     }
 
-    private AnalysisResponse createErrorResponse(String tickerSymbol, String errorMessage) {
-        return AnalysisResponse.builder()
-                .tickerSymbol(tickerSymbol)
-                .agents(List.of(
-                        AnalysisResponse.AgentResponse.builder()
-                                .agent("error")
-                                .summary("Analysis failed: " + errorMessage)
-                                .redFlags(List.of("service_error"))
-                                .greenFlags(List.of())
-                                .buyScore(null)
-                                .extra(Map.of("confidence","Low"))
-                                .build()
-                ))
-                .build();
+    @GetMapping("/analyze/{jobId}")
+    public ResponseEntity<?> getResult(@PathVariable String jobId) {
+        Optional<AnalysisResponse> result = jobService.getResult(jobId);
+        return result.<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(202).body(Map.of("jobId", jobId, "status", "IN_PROGRESS")));
+    }
+
+    private UUID parseUser(String raw) {
+        try { return raw == null? UUID.randomUUID(): UUID.fromString(raw); } catch (Exception e) { return UUID.randomUUID(); }
     }
 }

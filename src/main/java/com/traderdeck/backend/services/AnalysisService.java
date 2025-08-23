@@ -66,4 +66,20 @@ public class AnalysisService {
                 ))
                 .build();
     }
+
+    public AnalysisResponse errorResponse(String ticker, String message) {
+        return AnalysisResponse.builder()
+                .tickerSymbol(ticker)
+                .agents(List.of(
+                        AnalysisResponse.AgentResponse.builder()
+                                .agent("error")
+                                .buyScore(null)
+                                .redFlags(List.of("error"))
+                                .greenFlags(List.of())
+                                .summary(message)
+                                .extra(Map.of("detail", message))
+                                .build()
+                ))
+                .build();
+    }
 }
