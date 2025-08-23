@@ -3,7 +3,7 @@ name: Deploy Spring Boot to Backend EC2
 on:
   push:
     branches:
-      - main  # Deploys automatically when code is pushed to main
+      - main
 
 jobs:
   deploy:
@@ -30,7 +30,7 @@ jobs:
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "target/*.jar"
-          target: "/home/ec2-user/"
+          target: "/home/ec2-user/target/"
 
       # Step 2: SSH into Bastion and Copy JAR to Backend EC2, then Restart App
       - name: SSH into Bastion & Deploy to Backend EC2
@@ -43,12 +43,28 @@ jobs:
             echo "Verifying JAR file exists on Bastion..."
             ls -lah /home/ec2-user/target/
             echo "Copying JAR to Backend EC2..."
-            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar ec2-user@10.16.78.89:/home/ec2-user/
-            echo "SSHing into Backend EC2..."
-            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 << 'EOF'
-              echo "Stopping Existing Spring Boot Application"
+            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar ec2-user@10.16.78.89:/home/ec2-user/app/app.jar
+
+            echo "Creating .env file on Backend EC2..."
+            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 "cat > /home/ec2-user/app/.env <<EOF
+            DB_URL=${{ secrets.DB_URL }}
+            DB_USERNAME=${{ secrets.DB_USERNAME }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            AWS_REGION=${{ secrets.AWS_REGION }}
+            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            BEDROCK_FLOW_ID=${{ secrets.BEDROCK_FLOW_ID }}
+            BEDROCK_FLOW_ALIAS_ID=${{ secrets.BEDROCK_FLOW_ALIAS_ID }}
+            BEDROCK_MOCK_ENABLED=${{ secrets.BEDROCK_MOCK_ENABLED }}
+            EOF"
+
+            echo "Restarting app on Backend EC2..."
+            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 "
               pkill -f 'java -jar' || true
-              echo "Starting New Deployment"
-              nohup java -jar /home/ec2-user/backend-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
-              echo "Deployment Successful"
-            EOF
+              cd /home/ec2-user/app
+              set -a
+              . ./.env
+              set +a
+              nohup java -jar app.jar > app.log 2>&1 &
+            "
+            echo "Deployment Successful"
