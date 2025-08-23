@@ -79,9 +79,6 @@ jobs:
             EOF
             EOSSH
               echo 'Environment file created successfully'
-              echo 'Verifying .env file contents:'
-              wc -l /home/ec2-user/.env
-              echo 'Environment variables count:' \$(cat /home/ec2-user/.env | wc -l)
             "
             if [ $? -eq 0 ]; then
               echo "SUCCESS: Environment variables created on Backend EC2"
