@@ -40,23 +40,37 @@ jobs:
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            JAR_NAME=backend-0.0.1-SNAPSHOT.jar
+            BACKEND_HOST=10.16.78.89
+            REMOTE_HOME=/home/ec2-user
+            REMOTE_JAR_PATH="$REMOTE_HOME/$JAR_NAME"
+            
             echo "=== Starting deployment process ==="
             echo "Current time: $(date)"
             echo "Current user: $(whoami)"
             echo "Current directory: $(pwd)"
             
-            echo "=== Verifying JAR file exists on Bastion ==="
-            ls -lah /home/ec2-user/
-            if [ ! -f /home/ec2-user/backend-0.0.1-SNAPSHOT.jar ]; then
-              echo "ERROR: JAR file not found on Bastion!"
+            echo "=== Verifying JAR file exists on Bastion (multi-path search) ==="
+            echo "Listing /home/ec2-user:"; ls -lah /home/ec2-user || true
+            echo "Listing /home/ec2-user/target:"; ls -lah /home/ec2-user/target || true
+            if [ -f "/home/ec2-user/$JAR_NAME" ]; then
+              JAR_PATH_ON_BASTION="/home/ec2-user/$JAR_NAME"
+            elif [ -f "/home/ec2-user/target/$JAR_NAME" ]; then
+              JAR_PATH_ON_BASTION="/home/ec2-user/target/$JAR_NAME"
+            else
+              echo "Jar not in standard locations, running find..."
+              JAR_PATH_ON_BASTION=$(find /home/ec2-user -maxdepth 4 -type f -name "$JAR_NAME" | head -1 || true)
+            fi
+            if [ -z "$JAR_PATH_ON_BASTION" ] || [ ! -f "$JAR_PATH_ON_BASTION" ]; then
+              echo "ERROR: JAR file not found anywhere under /home/ec2-user"
               exit 1
             fi
-            echo "SUCCESS: JAR file found on Bastion"
+            echo "SUCCESS: Found JAR at: $JAR_PATH_ON_BASTION"
             
             echo "=== Copying JAR to Backend EC2 ==="
-            echo "Source: /home/ec2-user/backend-0.0.1-SNAPSHOT.jar"
-            echo "Destination: ec2-user@10.16.78.89:/home/ec2-user/"
-            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/backend-0.0.1-SNAPSHOT.jar ec2-user@10.16.78.89:/home/ec2-user/
+            echo "Source: $JAR_PATH_ON_BASTION"
+            echo "Destination: ec2-user@$BACKEND_HOST:$REMOTE_HOME/"
+            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem "$JAR_PATH_ON_BASTION" ec2-user@$BACKEND_HOST:"$REMOTE_HOME/"
             if [ $? -eq 0 ]; then
               echo "SUCCESS: JAR file copied to Backend EC2"
             else
@@ -65,7 +79,7 @@ jobs:
             fi
 
             echo "=== Creating environment variables on Backend EC2 ==="
-            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 'bash -s' <<'EOSSH'
+            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@$BACKEND_HOST 'bash -s' <<'EOSSH'
             set -e
             cat > /home/ec2-user/.env <<'EOF'
             DB_URL=${{ secrets.DB_URL }}
@@ -91,81 +105,68 @@ jobs:
             fi
 
             echo "=== Deploying to Backend EC2 ==="
-            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 '
-              echo "=== Backend EC2 Deployment Start ==="
-              echo "Current time: $(date)"
-              echo "Current user: $(whoami)"
-              echo "Current directory: $(pwd)"
+            ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@$BACKEND_HOST "
+              JAR_NAME=$JAR_NAME
+              REMOTE_HOME=$REMOTE_HOME
+              REMOTE_JAR_PATH=$REMOTE_JAR_PATH
+              echo '=== Backend EC2 Deployment Start ==='
+              echo 'Current time:' \
+              $(date)
               
-              echo "=== Stopping existing Spring Boot application ==="
-              EXISTING_PID=$(pgrep -f "java -jar.*backend-0.0.1-SNAPSHOT.jar")
-              if [ ! -z "$EXISTING_PID" ]; then
-                echo "Found existing application with PID: $EXISTING_PID"
-                pkill -f "java -jar" || true
+              echo '=== Stopping existing Spring Boot application ==='
+              EXISTING_PID=\$(pgrep -f \"java -jar.*$JAR_NAME\")
+              if [ ! -z \"$EXISTING_PID\" ]; then
+                echo \"Found existing application with PID: $EXISTING_PID\"
+                pkill -f \"java -jar.*$JAR_NAME\" || true
                 sleep 3
-                REMAINING_PID=$(pgrep -f "java -jar.*backend-0.0.1-SNAPSHOT.jar")
-                if [ ! -z "$REMAINING_PID" ]; then
-                  echo "WARNING: Application still running with PID: $REMAINING_PID"
-                  pkill -9 -f "java -jar" || true
+                REMAINING_PID=\$(pgrep -f \"java -jar.*$JAR_NAME\")
+                if [ ! -z \"$REMAINING_PID\" ]; then
+                  echo \"WARNING: Application still running with PID: $REMAINING_PID\"
+                  pkill -9 -f \"java -jar.*$JAR_NAME\" || true
                   sleep 2
-                  echo "Force killed application"
+                  echo \"Force killed application\"
                 else
-                  echo "SUCCESS: Application stopped gracefully"
+                  echo \"SUCCESS: Application stopped gracefully\"
                 fi
               else
-                echo "INFO: No existing application found running"
+                echo \"INFO: No existing application found running\"
               fi
               
-              echo "=== Loading environment variables ==="
-              if [ -f /home/ec2-user/.env ]; then
-                echo "Loading environment from .env file..."
+              echo '=== Loading environment variables ==='
+              if [ -f $REMOTE_HOME/.env ]; then
                 set -a
-                . /home/ec2-user/.env
+                . $REMOTE_HOME/.env
                 set +a
-                echo "Environment variables loaded. Count: $(cat /home/ec2-user/.env | wc -l)"
-                echo "DB_URL is set to: ${DB_URL:-NOT_SET}"
-                echo "AWS_REGION is set to: ${AWS_REGION:-NOT_SET}"
               else
-                echo "ERROR: .env file not found!"
+                echo 'ERROR: .env file not found!'
                 exit 1
               fi
-              
-              echo "=== Verifying JAR file on Backend EC2 ==="
-              if [ -f /home/ec2-user/backend-0.0.1-SNAPSHOT.jar ]; then
-                echo "SUCCESS: JAR file found on Backend EC2"
-                ls -lah /home/ec2-user/backend-0.0.1-SNAPSHOT.jar
+
+              echo '=== Verifying JAR file on Backend EC2 ==='
+              if [ -f \"$REMOTE_JAR_PATH\" ]; then
+                echo \"SUCCESS: JAR file found: $REMOTE_JAR_PATH\"
+                ls -lah \"$REMOTE_JAR_PATH\"
               else
-                echo "ERROR: JAR file not found on Backend EC2!"
+                echo \"ERROR: JAR file not found at $REMOTE_JAR_PATH\"
+                ls -lah $REMOTE_HOME || true
                 exit 1
               fi
-              
-              echo "=== Starting new deployment ==="
-              echo "Starting application in background..."
-              nohup java -jar /home/ec2-user/backend-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
-              APP_PID=$!
-              echo "Application started with PID: $APP_PID"
-              
-              echo "=== Waiting for application to start ==="
-              sleep 5
-              
-              echo "=== Verifying application is running ==="
-              RUNNING_PID=$(pgrep -f "java -jar.*backend-0.0.1-SNAPSHOT.jar")
-              if [ ! -z "$RUNNING_PID" ]; then
-                echo "SUCCESS: Application is running with PID: $RUNNING_PID"
-              else
-                echo "ERROR: Application failed to start!"
-                echo "=== Last 20 lines of application log ==="
-                tail -20 app.log || echo "No log file found"
+
+              echo '=== Starting new deployment ==='
+              nohup java -jar \"$REMOTE_JAR_PATH\" > app.log 2>&1 &
+              APP_PID=\$!
+              echo \"Application started with PID: $APP_PID\"
+              sleep 7
+              RUNNING_PID=\$(pgrep -f \"java -jar.*$JAR_NAME\")
+              if [ -z \"$RUNNING_PID\" ]; then
+                echo 'ERROR: Application failed to start.'
+                tail -40 app.log || true
                 exit 1
               fi
-              
-              echo "=== Checking application logs ==="
-              echo "Last 10 lines of application log:"
-              tail -10 app.log || echo "No log content yet"
-              
-              echo "=== Deployment completed successfully ==="
-              echo "Deployment finished at: $(date)"
-            '
+              echo \"SUCCESS: Application running with PID: $RUNNING_PID\"
+              tail -20 app.log || true
+              echo '=== Deployment completed successfully ==='
+            "
             if [ $? -eq 0 ]; then
               echo "SUCCESS: Deployment completed on Backend EC2"
             else
