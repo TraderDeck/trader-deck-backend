@@ -68,17 +68,17 @@ jobs:
             ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 "
               echo 'Creating .env file...'
               cat > /home/ec2-user/.env << 'ENVEOF'
-DB_HOST=${{ secrets.DB_HOST }}
-DB_USERNAME=${{ secrets.DB_USERNAME }}
-DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-DB_URL=${{ secrets.DB_URL }}
-AWS_REGION=${{ secrets.AWS_REGION }}
-AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-BEDROCK_FLOW_ID=${{ secrets.BEDROCK_FLOW_ID }}
-BEDROCK_FLOW_ALIAS_ID=${{ secrets.BEDROCK_FLOW_ALIAS_ID }}
-BEDROCK_MOCK_ENABLED=${{ secrets.BEDROCK_MOCK_ENABLED }}
-ENVEOF
+            DB_HOST=\${{ secrets.DB_HOST }}
+            DB_USERNAME=\${{ secrets.DB_USERNAME }}
+            DB_PASSWORD=\${{ secrets.DB_PASSWORD }}
+            DB_URL=\${{ secrets.DB_URL }}
+            AWS_REGION=\${{ secrets.AWS_REGION }}
+            AWS_ACCESS_KEY_ID=\${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY=\${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            BEDROCK_FLOW_ID=\${{ secrets.BEDROCK_FLOW_ID }}
+            BEDROCK_FLOW_ALIAS_ID=\${{ secrets.BEDROCK_FLOW_ALIAS_ID }}
+            BEDROCK_MOCK_ENABLED=\${{ secrets.BEDROCK_MOCK_ENABLED }}
+            ENVEOF
               echo 'Environment file created successfully'
               echo 'Verifying .env file contents:'
               wc -l /home/ec2-user/.env
