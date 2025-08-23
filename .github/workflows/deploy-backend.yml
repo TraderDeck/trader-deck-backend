@@ -46,17 +46,17 @@ jobs:
             echo "Current directory: $(pwd)"
             
             echo "=== Verifying JAR file exists on Bastion ==="
-            ls -lah /home/ec2-user/target/
-            if [ ! -f /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar ]; then
+            ls -lah /home/ec2-user/
+            if [ ! -f /home/ec2-user/backend-0.0.1-SNAPSHOT.jar ]; then
               echo "ERROR: JAR file not found on Bastion!"
               exit 1
             fi
             echo "SUCCESS: JAR file found on Bastion"
             
             echo "=== Copying JAR to Backend EC2 ==="
-            echo "Source: /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar"
+            echo "Source: /home/ec2-user/backend-0.0.1-SNAPSHOT.jar"
             echo "Destination: ec2-user@10.16.78.89:/home/ec2-user/"
-            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/target/backend-0.0.1-SNAPSHOT.jar ec2-user@10.16.78.89:/home/ec2-user/
+            scp -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem /home/ec2-user/backend-0.0.1-SNAPSHOT.jar ec2-user@10.16.78.89:/home/ec2-user/
             if [ $? -eq 0 ]; then
               echo "SUCCESS: JAR file copied to Backend EC2"
             else
@@ -66,6 +66,7 @@ jobs:
 
             echo "=== Creating environment variables on Backend EC2 ==="
             ssh -o StrictHostKeyChecking=no -i ~/traderdeck-key.pem ec2-user@10.16.78.89 'bash -s' <<'EOSSH'
+            set -e
             cat > /home/ec2-user/.env <<'EOF'
             DB_URL=${{ secrets.DB_URL }}
             DB_USERNAME=${{ secrets.DB_USERNAME }}
@@ -77,9 +78,11 @@ jobs:
             BEDROCK_FLOW_ALIAS_ID=${{ secrets.BEDROCK_FLOW_ALIAS_ID }}
             BEDROCK_MOCK_ENABLED=${{ secrets.BEDROCK_MOCK_ENABLED }}
             EOF
+            chmod 600 /home/ec2-user/.env
+            echo 'Environment file created successfully'
+            echo 'Verifying .env file line count:'
+            wc -l /home/ec2-user/.env
             EOSSH
-              echo 'Environment file created successfully'
-            "
             if [ $? -eq 0 ]; then
               echo "SUCCESS: Environment variables created on Backend EC2"
             else
@@ -120,7 +123,7 @@ jobs:
                 . /home/ec2-user/.env
                 set +a
                 echo "Environment variables loaded. Count: $(cat /home/ec2-user/.env | wc -l)"
-                echo "DB_HOST is set to: ${DB_HOST:-NOT_SET}"
+                echo "DB_URL is set to: ${DB_URL:-NOT_SET}"
                 echo "AWS_REGION is set to: ${AWS_REGION:-NOT_SET}"
               else
                 echo "ERROR: .env file not found!"
