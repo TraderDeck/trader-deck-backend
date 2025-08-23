@@ -5,7 +5,7 @@ target/
 !**/src/test/**/target/
 
 ### Environment Variables ###
-
+.env
 ### STS ###
 .apt_generated
 .classpath
