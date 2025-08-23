@@ -9,6 +9,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -47,26 +49,16 @@ public class AnalyzeController {
     private AnalysisResponse createErrorResponse(String tickerSymbol, String errorMessage) {
         return AnalysisResponse.builder()
                 .tickerSymbol(tickerSymbol)
-                .tradeAgent(AnalysisResponse.TradeAgentResponse.builder()
-                        .recommendation("ERROR")
-                        .reasoning("Analysis failed: " + errorMessage)
-                        .confidence("Low")
-                        .build())
-                .technicalAgent(AnalysisResponse.TechnicalAgentResponse.builder()
-                        .analysis("Analysis failed")
-                        .signals("N/A")
-                        .indicators("N/A")
-                        .build())
-                .fundamentalsAgent(AnalysisResponse.FundamentalsAgentResponse.builder()
-                        .analysis("Analysis failed")
-                        .valuation("N/A")
-                        .metrics("N/A")
-                        .build())
-                .newsAgent(AnalysisResponse.NewsAgentResponse.builder()
-                        .sentiment("Neutral")
-                        .summary("Analysis failed")
-                        .impact("Unknown")
-                        .build())
+                .agents(List.of(
+                        AnalysisResponse.AgentResponse.builder()
+                                .agent("error")
+                                .summary("Analysis failed: " + errorMessage)
+                                .redFlags(List.of("service_error"))
+                                .greenFlags(List.of())
+                                .buyScore(null)
+                                .extra(Map.of("confidence","Low"))
+                                .build()
+                ))
                 .build();
     }
 }
