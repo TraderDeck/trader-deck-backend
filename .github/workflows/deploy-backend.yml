@@ -2,24 +2,21 @@ name: Deploy Spring Boot to Backend EC2
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set Up JDK
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Build Spring Boot JAR
+      - name: Build
         run: mvn -q -DskipTests clean package
 
       - name: Locate Artifact And Checksum
@@ -38,7 +35,8 @@ jobs:
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: ${{ steps.art.outputs.jar }}
-          target: /home/ec2-user/deploy/backend-${{ steps.art.outputs.stamp }}.jar
+          target: /home/ec2-user/deploy/
+          overwrite: true
 
       - name: SSH into Bastion & Deploy to Backend EC2
         uses: appleboy/ssh-action@v0.1.4
@@ -46,20 +44,19 @@ jobs:
           host: ${{ secrets.BASTION_IP }}
           username: ec2-user
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: GIT_SHA,LOCAL_SHA
           script: |
             set -euo pipefail
             mkdir -p /home/ec2-user/deploy
-            LATEST_JAR=$(ls -t /home/ec2-user/deploy/backend-*.jar | head -n1)
-            echo "$LATEST_JAR"
-            LOCAL_SHA="${{ steps.art.outputs.sha }}"
+            shopt -s globstar nullglob
+            LATEST_JAR=$(ls -t /home/ec2-user/deploy/**/*.jar | head -n1)
+            echo "Deploying $LATEST_JAR"
+
+            LOCAL_SHA='${{ steps.art.outputs.sha }}'
             REMOTE_SHA=$(sha256sum "$LATEST_JAR" | awk '{print $1}')
             test "$LOCAL_SHA" = "$REMOTE_SHA"
 
-            umask 077
-            cat > ~/.ssh/backend_key <<'KEY'
-            ${{ secrets.BACKEND_SSH_KEY }}
-            KEY
+            mkdir -p ~/.ssh
+            echo "${{ secrets.BACKEND_SSH_KEY }}" > ~/.ssh/backend_key
             chmod 600 ~/.ssh/backend_key
 
             ssh -o StrictHostKeyChecking=no -i ~/.ssh/backend_key ec2-user@10.16.78.89 'mkdir -p /home/ec2-user/app'
