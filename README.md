@@ -61,6 +61,28 @@ This asynchronous implementation ensures that the system remains responsive and 
 - For a detailed explanation of the async architecture and rationale, see [Asynchronous Stock Analysis Architecture: Decoupling Long-Running Bedrock Workloads to Overcome CloudFront Timeouts.md](Asynchronous%20Stock%20Analysis%20Architecture:%20Decoupling%20Long-Running%20Bedrock%20Workloads%20to%20Overcome%20CloudFront%20Timeouts.md).
 - For agent implementation details, see the [trader-deck-agents README](../trader-deck-agents/README.md).
 
+## How to Run
+
+### Prerequisites
+- Java 17+ (OpenJDK recommended)
+- Maven
+
+### Development
+1. Install dependencies and build the project:
+   ```
+   ./mvnw clean install
+   ```
+2. Run the Spring Boot application:
+   ```
+   ./mvnw spring-boot:run
+   ```
+   The backend will start on `http://localhost:8080` by default.
+
+3. To run tests:
+   ```
+   ./mvnw test
+   ```
+
 ## User Authentication
 - Registration and login are managed via dedicated endpoints.
 - Passwords are securely hashed using BCrypt.
